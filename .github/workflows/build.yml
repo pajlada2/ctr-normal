@@ -1,0 +1,65 @@
+---
+name: Build
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+concurrency: 
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+          fetch-depth: 0  # allows for tags access
+
+      # LINUX
+      - name: Install dependencies (Ubuntu)
+        run: |
+            sudo apt-get update
+            sudo apt-get -y install cmake build-essential
+
+      - name: Build (Ubuntu)
+        run: |
+            mkdir build
+            cd build
+            cmake \
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=On \
+              ..
+            make "-j$(nproc)"
+        shell: bash
+
+      - name: clang-tidy review
+        uses: pajlada/clang-tidy-review@feat/split-up-review-and-post-workflows
+        if: github.event_name == 'pull_request'
+        id: review
+        with:
+          include: src/main.cpp
+          build_dir: build
+          config_file: '.clang-tidy'
+          split_workflow: false
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: clang-tidy-review
+          path: |
+            clang-tidy-review-output.json
+            clang-tidy-review-metadata.json
+
+      - name: Get total comments
+        run: |
+          echo "Total comments: ${total_comments}"
+        env:
+          total_comments: ${{ steps.review.outputs.total_comments }}
